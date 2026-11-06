@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.py[cod]
+dist/
+.mypy_cache/
+.ruff_cache/
+# Generated iwd configs contain cleartext credentials.
+*.8021x
+.DS_Store

@@ -1,0 +1,7 @@
+# For installing with pip. Requires Python 3.12 or newer.
+# Keep in sync with the dependencies in pyproject.toml.
+cryptography>=44
+
+# Needed only to configure NetworkManager. Uncomment to build it from source, which
+# requires a compiler and the system headers listed in README.md.
+# dbus-python>=1.3

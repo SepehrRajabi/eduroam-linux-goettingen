@@ -1,0 +1,42 @@
+[project]
+name = "eduroam-gwdg-linux-goettingen"
+version = "0.1.0"
+description = "Unofficial eduroam installer for Linux, configured for the University of Göttingen (GWDG)."
+readme = "README.md"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = ["cryptography>=44"]
+
+[project.optional-dependencies]
+# dbus-python ships as source only and needs system headers to build, so it is
+# opt-in: wpa_supplicant and iwd config generation work without it.
+nm = ["dbus-python>=1.3"]
+
+[dependency-groups]
+dev = ["mypy>=1.13", "ruff>=0.8"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "D", "PL", "PTH", "RUF", "S", "SIM"]
+ignore = [
+    "PLR2004", # magic values: version tuples read better inline
+    "S105",    # false positive on labels such as `enter_password`
+    "S603",    # subprocess calls never go through a shell
+    "S607",    # dialog tools are deliberately resolved through PATH
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/__init__.py" = ["E501", "RUF002"] # retained legal notices stay word for word
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.mypy]
+strict = true
+files = ["main.py", "src"]
+
+[[tool.mypy.overrides]]
+module = ["dbus", "dbus.*"]
+ignore_missing_imports = true
