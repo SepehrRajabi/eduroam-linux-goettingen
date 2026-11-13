@@ -4,9 +4,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from .backends.iwd import write_iwd_configs
-from .backends.network_manager import NetworkManagerBackend
-from .backends.wpa_supplicant import write_wpa_conf
+from .backends import BackendChoice, InstallRequest, select_backend
 from .certificates import save_ca
 from .config import GOETTINGEN, Profile
 from .credentials import Credentials, collect_credentials
@@ -28,8 +26,7 @@ class InstallOptions:
         pfx_file: Personal certificate to import.
         silent: Do not interact with the user.
         gui: Preferred user interface.
-        wpa_conf: Only generate a wpa_supplicant configuration file.
-        iwd_conf: Only generate an iwd configuration file.
+        backend: How to configure the network; detected if ``None``.
     """
 
     username: str = ""
@@ -37,8 +34,7 @@ class InstallOptions:
     pfx_file: Path | None = None
     silent: bool = False
     gui: GuiChoice | None = None
-    wpa_conf: bool = False
-    iwd_conf: bool = False
+    backend: BackendChoice | None = None
 
 
 def _confirm_profile(ui: UserInterface, profile: Profile) -> None:
@@ -88,14 +84,10 @@ def run_installer(
     )
     _confirm_profile(ui, profile)
 
-    file_output_requested = options.wpa_conf or options.iwd_conf
-    network_manager = (
-        None if file_output_requested else NetworkManagerBackend.connect(messages)
-    )
-    wired = network_manager is not None and _wants_wired(ui, profile, messages)
+    backend = select_backend(options.backend, ui, messages)
+    logger.debug("backend: %s", backend.label)
+    wired = backend.supports_wired and _wants_wired(ui, profile, messages)
     _prepare_directory(ui, paths, messages)
-    if network_manager is None and not file_output_requested:
-        ui.ask_to_continue(messages.save_wpa_conf)
 
     credentials = Credentials(options.username, options.password, options.pfx_file)
     collect_credentials(credentials, ui, profile, paths)
@@ -104,14 +96,18 @@ def run_installer(
         profile.ca_certificate,
         paths,
         messages,
-        prefer_directory=(
-            network_manager is not None and network_manager.version.needs_ca_directory
-        ),
+        prefer_directory=backend.prefers_ca_directory,
     )
-    if network_manager is not None:
-        network_manager.install(profile, credentials, ca, paths, wired=wired)
-    elif options.iwd_conf:
-        write_iwd_configs(profile, credentials)
-    else:
-        write_wpa_conf(profile, credentials, ca, paths)
-    ui.show_info(messages.installation_finished)
+    instructions = backend.install(
+        InstallRequest(
+            profile=profile,
+            credentials=credentials,
+            ca=ca,
+            paths=paths,
+            ui=ui,
+            messages=messages,
+            wired=wired,
+        )
+    )
+    finished = messages.installation_finished
+    ui.show_info(f"{finished}\n\n{instructions}" if instructions else finished)

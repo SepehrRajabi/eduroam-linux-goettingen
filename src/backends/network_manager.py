@@ -6,7 +6,7 @@ import re
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, NamedTuple, Self
+from typing import Any, ClassVar, NamedTuple, Self
 
 from ..certificates import CaStore
 from ..config import PASSWORD_METHODS, EapMethod, Profile
@@ -14,6 +14,7 @@ from ..credentials import Credentials
 from ..errors import ExitCode, InstallerError
 from ..messages import Messages
 from ..paths import InstallerPaths
+from .base import Backend, BackendChoice, InstallRequest
 
 try:
     import dbus
@@ -68,8 +69,11 @@ class NmVersion(NamedTuple):
 
 
 @dataclass(slots=True)
-class NetworkManagerBackend:
+class NetworkManagerBackend(Backend):
     """A connection to NetworkManager.
+
+    Connections are restricted to the current user, so no administrator rights
+    are needed.
 
     Attributes:
         bus: System D-Bus connection.
@@ -77,6 +81,11 @@ class NetworkManagerBackend:
         version: Version of the running NetworkManager.
         messages: Texts to show.
     """
+
+    choice: ClassVar[BackendChoice] = BackendChoice.NETWORK_MANAGER
+    label: ClassVar[str] = "NetworkManager"
+    service: ClassVar[str | None] = "NetworkManager"
+    supports_wired: ClassVar[bool] = True
 
     bus: Any
     settings: Any
@@ -114,31 +123,23 @@ class NetworkManagerBackend:
         logger.debug("NM connection worked")
         return cls(bus, settings, version, messages)
 
-    def install(
-        self,
-        profile: Profile,
-        credentials: Credentials,
-        ca: CaStore,
-        paths: InstallerPaths,
-        *,
-        wired: bool = False,
-    ) -> None:
-        """Replace the connections of ``profile`` with freshly configured ones.
+    @property
+    def prefers_ca_directory(self) -> bool:
+        """Return whether this version needs one hashed file per CA certificate."""
+        return self.version.needs_ca_directory
 
-        Args:
-            profile: Connections to configure.
-            credentials: What to authenticate with.
-            ca: Installed CA certificates.
-            paths: Installation directories.
-            wired: Also configure 802.1X on wired interfaces.
-        """
-        security = self._security_settings(profile, credentials, ca, paths)
+    def install(self, request: InstallRequest) -> None:
+        """Replace the connections of the profile with freshly configured ones."""
+        profile = request.profile
+        security = self._security_settings(
+            profile, request.credentials, request.ca, request.paths
+        )
         for ssid in profile.ssids:
             self._delete_wifi_connection(ssid)
             self._add_wifi_connection(ssid, security)
         for ssid in profile.del_ssids:
             self._delete_wifi_connection(ssid)
-        if wired:
+        if request.wired:
             self._delete_connections(_is_wired_eduroam)
             self._add_wired_connection(security)
 

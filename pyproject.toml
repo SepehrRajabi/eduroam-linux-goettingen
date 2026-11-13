@@ -5,7 +5,10 @@ description = "Unofficial eduroam installer for Linux, configured for the Univer
 readme = "README.md"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
-dependencies = ["cryptography>=44"]
+dependencies = [
+    "cryptography>=44",
+    "rich>=13",
+]
 
 [project.optional-dependencies]
 # dbus-python ships as source only and needs system headers to build, so it is
@@ -13,7 +16,11 @@ dependencies = ["cryptography>=44"]
 nm = ["dbus-python>=1.3"]
 
 [dependency-groups]
-dev = ["mypy>=1.13", "ruff>=0.8"]
+dev = [
+    "mypy>=1.13",
+    "pytest>=9.2.0",
+    "ruff>=0.8",
+]
 
 [tool.ruff]
 line-length = 88
@@ -29,13 +36,18 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/__init__.py" = ["E501", "RUF002"] # retained legal notices stay word for word
+"tests/*" = ["S101"] # pytest uses assert
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.mypy]
 strict = true
-files = ["main.py", "src"]
+files = ["main.py", "src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
 
 [[tool.mypy.overrides]]
 module = ["dbus", "dbus.*"]

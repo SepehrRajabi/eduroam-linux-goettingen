@@ -62,6 +62,45 @@ class Messages:
         "doing so will introduce a connection delay lasting up to 30 sec. when you "
         "connect to an open wired network."
     )
+    backend_unavailable: str = "{} cannot be configured on this system"
+    privileges_unavailable: str = (
+        "Administrator rights are needed to write {}, but neither pkexec nor sudo "
+        "is installed"
+    )
+    privileges_refused: str = "Could not write {} with administrator rights"
+
+    # iwd and wpa_supplicant system backends
+    iwd_not_installed: str = "iwd does not seem to be installed"
+    iwd_start: str = (
+        "iwd is not running. Start it to connect, for example with:\n\n"
+        "    sudo systemctl enable --now iwd\n\n"
+        "To get an address, iwd needs EnableNetworkConfiguration=true in "
+        "/etc/iwd/main.conf, or another network manager such as systemd-networkd."
+    )
+    wpa_supplicant_no_config: str = (
+        "wpa_supplicant runs without a configuration file the installer can find; "
+        "it is probably controlled over D-Bus by another program"
+    )
+    wpa_supplicant_no_interface: str = "No wireless network interface was found"
+    wpa_supplicant_restart: str = (
+        "Restart wpa_supplicant to load the new configuration from {}"
+    )
+    wpa_supplicant_start: str = (
+        "wpa_supplicant is not running on {0}. Start it to connect, for example "
+        "with:\n\n"
+        "    sudo systemctl enable --now wpa_supplicant@{0}\n\n"
+        "To get an address, {0} also needs a DHCP client, such as systemd-networkd "
+        "or dhcpcd."
+    )
+
+    # ConnMan backend
+    connman_missing: str = "ConnMan does not seem to be installed: {} does not exist"
+    connman_unsupported_method: str = "ConnMan does not support EAP-{}"
+    connman_invalid_value: str = "ConnMan cannot store values containing NUL characters"
+    connman_del_ssids: str = (
+        "Networks which are no longer used may still be saved in ConnMan: {}. "
+        "You can remove them in your network settings."
+    )
 
 
 MESSAGES = Messages()

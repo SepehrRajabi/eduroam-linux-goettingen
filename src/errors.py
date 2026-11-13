@@ -10,6 +10,8 @@ class ExitCode(IntEnum):
     ABORTED = 1
     CERTIFICATE_ERROR = 2
     DBUS_ERROR = 3
+    BACKEND_UNAVAILABLE = 4
+    PRIVILEGES_UNAVAILABLE = 5
 
 
 class InstallerError(Exception):

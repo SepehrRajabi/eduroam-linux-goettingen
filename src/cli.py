@@ -2,11 +2,14 @@
 
 import argparse
 import logging
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from .backends import BackendChoice
 from .errors import ExitCode, InstallerError
 from .installer import InstallOptions, run_installer
+from .privileged_helper import HELPER_FLAG, serve
 from .ui import GuiChoice
 
 
@@ -38,12 +41,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--wpa_conf",
         action="store_true",
-        help="generate wpa_supplicant config file without configuring the system",
+        help="generate wpa_supplicant config file without configuring the system; "
+        f"same as --backend {BackendChoice.WPA_SUPPLICANT_FILE}",
     )
     parser.add_argument(
         "--iwd_conf",
         action="store_true",
-        help="generate iwd config file without configuring the system",
+        help="generate iwd config file without configuring the system; "
+        f"same as --backend {BackendChoice.IWD_FILE}",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=[choice.value for choice in BackendChoice],
+        help="configure this network service instead of detecting the running one",
     )
     parser.add_argument(
         "--gui",
@@ -53,13 +63,31 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _backend_choice(args: argparse.Namespace) -> BackendChoice | None:
+    """Return the backend requested by ``--backend`` or its older aliases."""
+    if args.backend:
+        return BackendChoice(args.backend)
+    if args.iwd_conf:
+        return BackendChoice.IWD_FILE
+    if args.wpa_conf:
+        return BackendChoice.WPA_SUPPLICANT_FILE
+    return None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the installer and return the process exit code.
 
     Args:
         argv: Command line arguments; defaults to those of the process.
     """
-    args = build_parser().parse_args(argv)
+    arguments = sys.argv[1:] if argv is None else list(argv)
+    if arguments == [HELPER_FLAG]:
+        # A frozen executable runs itself as the privileged helper.
+        return serve(sys.stdin.buffer, sys.stdout.buffer)
+    parser = build_parser()
+    args = parser.parse_args(arguments)
+    if args.backend and (args.wpa_conf or args.iwd_conf):
+        parser.error("--backend cannot be combined with --wpa_conf or --iwd_conf")
     if args.debug:
         logging.basicConfig(level=logging.DEBUG, format="DEBUG:%(message)s")
         print("Running debug mode")
@@ -69,8 +97,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         pfx_file=args.pfx_file,
         silent=args.silent,
         gui=GuiChoice(args.gui) if args.gui else None,
-        wpa_conf=args.wpa_conf,
-        iwd_conf=args.iwd_conf,
+        backend=_backend_choice(args),
     )
     try:
         run_installer(options)

@@ -1,8 +1,9 @@
 # eduroam-gwdg
 
 Configures [eduroam](https://eduroam.org/) on Linux for members of the University
-of Göttingen. It adds the connection to NetworkManager, or generates a
-configuration file for `wpa_supplicant` or `iwd`.
+of Göttingen. It detects the network service in use and configures NetworkManager,
+ConnMan, iwd or wpa_supplicant, or generates a configuration file for
+`wpa_supplicant` or `iwd`.
 
 This is a modernized, modular version of the single-file installer produced by
 GÉANT's [CAT](https://cat.eduroam.org/). See [Legacy script](#legacy-script) and
@@ -14,12 +15,14 @@ GÉANT's [CAT](https://cat.eduroam.org/). See [Legacy script](#legacy-script) an
 - Python 3.12 or newer, which [uv](https://docs.astral.sh/uv/) can provide for you
 - uv or pip
 - For NetworkManager only: `dbus-python`, see below
+- For ConnMan, iwd and wpa_supplicant: `pkexec` or `sudo`, see
+  [Administrator rights](#administrator-rights)
 
 ## Installation
 
 ### With uv
 
-Generating a `wpa_supplicant` or `iwd` file needs only:
+Everything except NetworkManager needs only:
 
 ```sh
 uv sync
@@ -87,8 +90,9 @@ If you installed with pip, run:
 | `-p`, `--password` | Set the password                                               |
 | `-s`, `--silent`   | Ask nothing and accept all prompts; use with `-u` and `-p`     |
 | `--pfxfile PATH`   | Personal certificate file, for certificate-based profiles      |
-| `--wpa_conf`       | Only generate a `wpa_supplicant` file                          |
-| `--iwd_conf`       | Only generate an `iwd` file; wins over `--wpa_conf`            |
+| `--backend NAME`   | Configure this service instead of detecting it, see below      |
+| `--wpa_conf`       | Same as `--backend wpa_supplicant-file`                        |
+| `--iwd_conf`       | Same as `--backend iwd-file`; wins over `--wpa_conf`           |
 | `--gui NAME`       | Prefer `tty`, `tkinter`, `zenity`, `kdialog` or `yad`          |
 | `-d`, `--debug`    | Log debugging information to standard error                    |
 
@@ -96,15 +100,72 @@ If you installed with pip, run:
 > A password given with `--password` is visible in your shell history and to other
 > local users in the process list. Prefer the prompt on shared machines.
 
+### Network services
+
+Without `--backend`, the installer configures the first of these that is running:
+
+| `--backend`           | Service        | What it does                                         |
+| --------------------- | -------------- | ---------------------------------------------------- |
+| `networkmanager`      | NetworkManager | Adds the connection over D-Bus, for your user only   |
+| `connman`             | ConnMan        | Writes `/var/lib/connman/eduroamgwdg.config`         |
+| `iwd`                 | iwd            | Writes `/var/lib/iwd/eduroam.8021x`                  |
+| `wpa_supplicant`      | wpa_supplicant | Adds the network to the file it runs with            |
+| `iwd-file`            | none           | Writes `eduroam.8021x` to the working directory      |
+| `wpa_supplicant-file` | none           | Writes `cat_installer.conf` to the installer directory |
+
+NetworkManager and ConnMan come first because they run iwd or wpa_supplicant
+themselves and would overwrite changes made below them. If none is detected,
+NetworkManager is tried anyway. If the detected service cannot be used, for example
+because `dbus-python` is missing, the installer offers a `wpa_supplicant` file
+instead.
+
+ConnMan and iwd pick up the new file by themselves. For wpa_supplicant:
+
+- The installer reads which file it runs with from its command line, and changes
+  only a marked region of that file. Your other networks are kept, and the
+  previous version is saved next to it as `<file>.<date>-<time>.bak`.
+- Earlier entries for eduroam outside the region are removed, so they cannot
+  conflict.
+- A running wpa_supplicant is told to reload with `wpa_cli reconfigure`. If that
+  is not possible, or wpa_supplicant is not running, the installer tells you what
+  to run.
+- If wpa_supplicant runs without a configuration file, it is controlled by another
+  program, and the installer refuses to change it.
+
+These services run as root, possibly before your home directory is mounted, so
+their certificates are copied to system directories:
+`/var/lib/connman/eduroamgwdg/` and `/etc/wpa_supplicant/eduroam-gwdg/`. iwd
+embeds the certificate in its file.
+
+### Administrator rights
+
+ConnMan, iwd and wpa_supplicant keep their configuration in system directories.
+When the installer first needs to write there, it starts a small helper through
+`pkexec`, or `sudo` if `pkexec` is not installed. You authenticate once, and the
+helper carries out the remaining operations of that run. Passwords and other file
+content are passed to it through a pipe, never on a command line. Files are
+replaced in one step, so a service never reads a half-written file.
+
+NetworkManager needs no administrator rights.
+
 ### User interface
 
-`--silent` and `--gui tty` always stay in the terminal, as does any session where
-`DISPLAY` is unset. Otherwise the choice is, in order:
+In a terminal, the installer asks its questions there, formatted with
+[Rich](https://github.com/Textualize/rich). It stays line based, so a `pkexec` or
+`sudo` password prompt can appear in between. The choice is, in order:
 
-1. the tool named by `--gui`, if it is installed
-2. tkinter, if `--gui` was given and tkinter is available
-3. the first of `yad`, `zenity` and `kdialog` that is installed
-4. the terminal
+1. no interaction, with `--silent`
+2. the terminal, with `--gui tty`
+3. the dialog tool named by `--gui`, if it is installed and a graphical session is
+   running
+4. tkinter, if `--gui` was given but not satisfied above, and `DISPLAY` is set
+5. the terminal, if standard input and output are both terminals
+6. the first of `yad`, `zenity` and `kdialog` that is installed, then tkinter, in
+   a graphical session; for example when started from a file manager
+7. the terminal
+
+A graphical session means that `DISPLAY` or `WAYLAND_DISPLAY` is set. tkinter
+needs `DISPLAY`, which XWayland provides on Wayland.
 
 ### Generated files
 
@@ -120,11 +181,14 @@ The installer directory is `$XDG_CONFIG_HOME/cat_installer`, by default
 | `<ssid>.8021x` in the working directory | `iwd` configuration                   |
 
 > [!CAUTION]
-> The `wpa_supplicant` and `iwd` files contain your password in clear text. They
-> are created with mode `0600`.
+> The `wpa_supplicant`, `iwd` and ConnMan files contain your password in clear
+> text. They are created with mode `0600`.
 
-To use the `iwd` file, move it to `/var/lib/iwd/`. To use the `wpa_supplicant`
-file, pass it with `wpa_supplicant -c`.
+To use the file from `--backend iwd-file`, move it to `/var/lib/iwd/`. To use the
+file from `--backend wpa_supplicant-file`, pass it with `wpa_supplicant -c`.
+
+iwd names files after the network. A name that is not only letters, digits, `-`,
+`_` and spaces becomes `=` followed by the name in hexadecimal.
 
 `ca/` is used only for NetworkManager 1.54.3 to 1.58.0, which needs one hashed file
 per certificate, and only when a profile has several certificates. The Göttingen
@@ -138,6 +202,8 @@ profile has one, so it always uses `ca.pem`.
 | 1    | Stopped by the user, or the personal certificate is unusable |
 | 2    | The profile contains no CA certificate                       |
 | 3    | NetworkManager connections could not be read over D-Bus      |
+| 4    | The service named by `--backend` cannot be used here         |
+| 5    | Administrator rights were not available or were refused      |
 
 ## Architecture
 
@@ -151,27 +217,37 @@ src/
 ├── credentials.py          Username validation, collecting credentials
 ├── certificates.py         CA installation, reading PKCS#12 files
 ├── paths.py                Installer file locations, private file writes
-├── system.py               Desktop and network interface detection
+├── privileged.py           System file access, with one privileged session
+├── privileged_helper.py    The helper running as root, standard library only
+├── system.py               Desktop, process and network interface detection
 ├── errors.py               Exit codes, InstallerError
 ├── backends/
+│   ├── __init__.py         select_backend() detects the service
+│   ├── base.py             Backend abstract base class
 │   ├── network_manager.py  Connections over D-Bus
-│   ├── wpa_supplicant.py   wpa_supplicant configuration
-│   └── iwd.py              iwd configuration
+│   ├── connman.py          ConnMan provisioning files
+│   ├── iwd.py              iwd configuration
+│   └── wpa_supplicant.py   wpa_supplicant configuration
 └── ui/
     ├── __init__.py         create_ui() chooses the interface
     ├── base.py             UserInterface abstract base class
-    ├── tty.py              Terminal
+    ├── terminal.py         Terminal, with Rich
     ├── tk.py               tkinter
     ├── dialogs.py          zenity, kdialog, yad
     └── silent.py           No interaction
+tests/                      pytest suite; never touches the real system
 ```
 
 `installer.run_installer()` is the best place to start reading. It drives the steps
 in order and is the only module which knows about all the others.
 
-Three changes cover most future work:
+These changes cover most future work:
 
 - **Another institution:** create a `Profile` in `config.py`.
+- **Another network service:** subclass `Backend` in `backends/base.py`, and add
+  it to `BACKENDS` and, if it can be detected, `AUTO_DETECT_ORDER` in
+  `backends/__init__.py`. Write system files with the functions in
+  `privileged.py`.
 - **A translation:** create a `Messages` instance with translated fields, and pass
   it to `run_installer()`.
 - **Another dialog tool:** subclass `DialogUI` in `ui/dialogs.py` and add it to
@@ -180,15 +256,30 @@ Three changes cover most future work:
 ## Development
 
 ```sh
-uv sync                 # environment with ruff and mypy
-uv run ruff check src main.py   # lint
-uv run ruff format src main.py  # format
-uv run mypy                     # strict type checking
+uv sync                               # environment with ruff, mypy and pytest
+uv run ruff check src main.py tests   # lint
+uv run ruff format src main.py tests  # format
+uv run mypy                           # strict type checking
+uv run pytest                         # tests
 ```
+
+The tests run on any system, macOS included. They redirect every system path into
+a temporary directory, replace D-Bus with an in-memory NetworkManager, and fail if
+anything tries to gain administrator rights. They cannot show that a real
+service accepts the configuration, so test changes to a backend on a Linux
+system running that service.
 
 ## Differences from the original script
 
 Apart from the changes below, behaviour is unchanged.
+
+### New features
+
+- ConnMan, iwd and standalone wpa_supplicant are configured directly, chosen by
+  detecting the running service, or with `--backend`.
+- The terminal interface uses Rich, and is preferred whenever the installer runs
+  in a terminal. The dialog tools and tkinter are used when there is no terminal.
+- Wayland sessions without XWayland can use the dialog tools.
 
 ### Requirements
 
@@ -197,6 +288,7 @@ Apart from the changes below, behaviour is unchanged.
 - NetworkManager older than 0.9 is no longer supported. The original crashed on
   those versions, so that code path could not run.
 - `--gui` rejects unknown values instead of ignoring them.
+- `rich` is a new dependency.
 
 ### Security fixes
 
@@ -226,6 +318,13 @@ Apart from the changes below, behaviour is unchanged.
 - SSIDs were decoded byte by byte, so non-ASCII names never matched.
 - `yad` was passed a literal quoted image name and a misspelled option, and `zenity`
   was passed empty arguments.
+- Values in `wpa_supplicant` files were not escaped. A password containing `"`
+  broke the file, and a newline could add settings. Such values are now written
+  in hexadecimal, which wpa_supplicant accepts for every text setting.
+- Values in `iwd` files were not escaped either. A backslash was misread, and a
+  newline could add settings.
+- At the end of input, such as a closed pipe, the terminal interface stops with
+  exit code 1 instead of a traceback.
 
 ## Legacy script
 
